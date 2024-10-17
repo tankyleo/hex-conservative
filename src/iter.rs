@@ -183,11 +183,22 @@ impl<'a> core::iter::FusedIterator for HexDigitsIter<'a> {}
 ///
 /// Returns the valid byte or the invalid input byte and a bool indicating error for `hi` or `lo`.
 fn hex_chars_to_byte(hi: u8, lo: u8) -> Result<u8, (u8, bool)> {
-    let hih = (hi as char).to_digit(16).ok_or((hi, true))?;
-    let loh = (lo as char).to_digit(16).ok_or((lo, false))?;
+    // Copied from https://github.com/KokaKiwi/rust-hex
+    let hih = match hi {
+        b'A'..=b'F' => hi - b'A' + 10,
+        b'a'..=b'f' => hi - b'a' + 10,
+        b'0'..=b'9' => hi - b'0',
+        _ => return Err((hi, true)),
+    };
+    let loh = match lo {
+        b'A'..=b'F' => lo - b'A' + 10,
+        b'a'..=b'f' => lo - b'a' + 10,
+        b'0'..=b'9' => lo - b'0',
+        _ => return Err((lo, false)),
+    };
 
     let ret = (hih << 4) + loh;
-    Ok(ret as u8)
+    Ok(ret)
 }
 
 /// Iterator over bytes which encodes the bytes and yields hex characters.
