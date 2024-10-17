@@ -26,7 +26,7 @@ impl FromHex for Vec<u8> {
     type Error = HexToBytesError;
 
     fn from_hex(s: &str) -> Result<Self, Self::Error> {
-        HexToBytesIter::new(s)?.map(|result| result.map_err(Into::into)).collect()
+        Ok(HexToBytesIter::new(s)?.drain_to_vec()?)
     }
 }
 
