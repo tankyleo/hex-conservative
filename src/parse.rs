@@ -26,7 +26,22 @@ impl FromHex for Vec<u8> {
     type Error = HexToBytesError;
 
     fn from_hex(s: &str) -> Result<Self, Self::Error> {
-        HexToBytesIter::new(s)?.map(|result| result.map_err(Into::into)).collect()
+        let bytes = HexToBytesIter::new(s)?;
+        let len = bytes.len();
+        let mut ret = Vec::with_capacity(len);
+        let mut ptr = ret.as_mut_ptr();
+        for byte in bytes {
+            // SAFETY: for loop iterates `len` times, and `ret` has a capacity of at least `len`
+            unsafe {
+                core::ptr::write(ptr, byte?);
+                ptr = ptr.add(1);
+            }
+        }
+        // SAFETY: `len` elements have been initialized, and `ret` has a capacity of at least `len`.
+        unsafe {
+            ret.set_len(len);
+        }
+        Ok(ret)
     }
 }
 
