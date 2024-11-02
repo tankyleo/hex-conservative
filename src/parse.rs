@@ -67,15 +67,15 @@ mod tests {
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar1),
-            Err(InvalidCharError { pos: 0, invalid: b'Z' }.into())
+            Err(InvalidCharError { pos: 0, invalid: 'Z' }.into())
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar2),
-            Err(InvalidCharError { pos: 3, invalid: b'Y' }.into())
+            Err(InvalidCharError { pos: 3, invalid: 'Y' }.into())
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar3),
-            Err(InvalidCharError { pos: 0, invalid: 194 }.into())
+            Err(InvalidCharError { pos: 0, invalid: '«' }.into())
         );
     }
 
@@ -89,19 +89,19 @@ mod tests {
 
         assert_eq!(
             HexToBytesIter::new(badpos1).unwrap().next().unwrap(),
-            Err(InvalidCharError { pos: 0, invalid: b'Z' })
+            Err(InvalidCharError { pos: 0, invalid: 'Z' })
         );
         assert_eq!(
             HexToBytesIter::new(badpos2).unwrap().nth(1).unwrap(),
-            Err(InvalidCharError { pos: 3, invalid: b'Y' })
+            Err(InvalidCharError { pos: 3, invalid: 'Y' })
         );
         assert_eq!(
             HexToBytesIter::new(badpos3).unwrap().next_back().unwrap(),
-            Err(InvalidCharError { pos: 15, invalid: b'Z' })
+            Err(InvalidCharError { pos: 15, invalid: 'Z' })
         );
         assert_eq!(
             HexToBytesIter::new(badpos4).unwrap().nth_back(1).unwrap(),
-            Err(InvalidCharError { pos: 12, invalid: b'Y' })
+            Err(InvalidCharError { pos: 12, invalid: 'Y' })
         );
     }
 
