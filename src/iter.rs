@@ -11,7 +11,7 @@ use std::io;
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use crate::alloc::vec::Vec;
-use crate::error::{InvalidCharError, OddLengthStringError};
+use crate::error::{InvalidChar, InvalidCharError, OddLengthStringError};
 use crate::{Case, Table};
 
 /// Convenience alias for `HexToBytesIter<HexDigitsIter<'a>>`.
@@ -126,7 +126,7 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
             }
             let s = core::str::from_utf8(&bytes).expect("invalid utf8");
             let invalid = s.chars().next().expect("expected at least 1 character");
-            InvalidCharError { invalid, pos }
+            InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
         }))
     }
 
@@ -137,7 +137,7 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let [hi, lo] = self.iter.nth(n)?;
         Some(hex_chars_to_byte(hi, lo).map_err(|(c, is_high)| InvalidCharError {
-            invalid: char::from(c),
+            invalid: InvalidChar::Utf8(char::from(c)),
             pos: if is_high {
                 (self.original_len - self.iter.len() - 1) * 2
             } else {
@@ -162,7 +162,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
                 bytes.push(lo);
                 bytes.push(hi);
             } else {
-                return InvalidCharError { invalid: char::from(lo), pos };
+                return InvalidCharError { invalid: InvalidChar::Utf8(char::from(lo)), pos };
             }
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
                 let [hi, lo] = self.iter.next_back().expect("unexpected end of utf8 byte sequence");
@@ -176,7 +176,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
             bytes.reverse();
             let s = core::str::from_utf8(&bytes).expect("invalid utf8");
             let invalid = s.chars().next().expect("expected at least 1 character");
-            InvalidCharError { invalid, pos }
+            InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
         }))
     }
 
@@ -184,7 +184,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let [hi, lo] = self.iter.nth_back(n)?;
         Some(hex_chars_to_byte(hi, lo).map_err(|(c, is_high)| InvalidCharError {
-            invalid: char::from(c),
+            invalid: InvalidChar::Utf8(char::from(c)),
             pos: if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 },
         }))
     }
@@ -497,7 +497,10 @@ mod tests {
         let hex = "geadbeef";
         let iter = HexToBytesIter::new_unchecked(hex);
         let mut got = [0u8; 4];
-        assert_eq!(iter.drain_to_slice(&mut got), Err(InvalidCharError { invalid: 'g', pos: 0 }));
+        assert_eq!(
+            iter.drain_to_slice(&mut got),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 0 })
+        );
     }
 
     #[test]
@@ -505,7 +508,10 @@ mod tests {
         let hex = "deadgeef";
         let iter = HexToBytesIter::new_unchecked(hex);
         let mut got = [0u8; 4];
-        assert_eq!(iter.drain_to_slice(&mut got), Err(InvalidCharError { invalid: 'g', pos: 4 }));
+        assert_eq!(
+            iter.drain_to_slice(&mut got),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 4 })
+        );
     }
 
     #[test]
@@ -513,7 +519,10 @@ mod tests {
         let hex = "deadbeeg";
         let iter = HexToBytesIter::new_unchecked(hex);
         let mut got = [0u8; 4];
-        assert_eq!(iter.drain_to_slice(&mut got), Err(InvalidCharError { invalid: 'g', pos: 7 }));
+        assert_eq!(
+            iter.drain_to_slice(&mut got),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 7 })
+        );
     }
 
     #[test]
@@ -534,21 +543,30 @@ mod tests {
     fn hex_to_bytes_vec_drain_first_char_error() {
         let hex = "geadbeef";
         let iter = HexToBytesIter::new_unchecked(hex);
-        assert_eq!(iter.drain_to_vec(), Err(InvalidCharError { invalid: 'g', pos: 0 }));
+        assert_eq!(
+            iter.drain_to_vec(),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 0 })
+        );
     }
 
     #[test]
     fn hex_to_bytes_vec_drain_middle_char_error() {
         let hex = "deadgeef";
         let iter = HexToBytesIter::new_unchecked(hex);
-        assert_eq!(iter.drain_to_vec(), Err(InvalidCharError { invalid: 'g', pos: 4 }));
+        assert_eq!(
+            iter.drain_to_vec(),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 4 })
+        );
     }
 
     #[test]
     fn hex_to_bytes_vec_drain_end_char_error() {
         let hex = "deadbeeg";
         let iter = HexToBytesIter::new_unchecked(hex);
-        assert_eq!(iter.drain_to_vec(), Err(InvalidCharError { invalid: 'g', pos: 7 }));
+        assert_eq!(
+            iter.drain_to_vec(),
+            Err(InvalidCharError { invalid: InvalidChar::Utf8('g'), pos: 7 })
+        );
     }
 
     #[test]
@@ -617,7 +635,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 0, invalid: '«' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -627,7 +646,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 2, invalid: '☺' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -637,7 +657,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 14, invalid: '🚀' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 14, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -652,7 +673,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 1, invalid: '«' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -662,7 +684,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 3, invalid: '☺' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -672,7 +695,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 13, invalid: '🚀' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 13, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -687,7 +711,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 0, invalid: '«' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -697,7 +722,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 2, invalid: '☺' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -707,7 +733,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 14, invalid: '🚀' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 14, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -721,7 +748,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 1, invalid: '«' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -731,7 +759,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 3, invalid: '☺' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -741,7 +770,8 @@ mod tests {
         for i in iter {
             match i {
                 Ok(_) => (),
-                Err(e) => assert_eq!(e, InvalidCharError { pos: 13, invalid: '🚀' }),
+                Err(e) =>
+                    assert_eq!(e, InvalidCharError { pos: 13, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }

@@ -74,21 +74,46 @@ impl From<OddLengthStringError> for HexToBytesError {
 /// Invalid hex character.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InvalidCharError {
-    pub(crate) invalid: char,
+    pub(crate) invalid: InvalidChar,
     pub(crate) pos: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum InvalidChar {
+    Utf8(char),
+    Other(u8),
+}
+
+impl fmt::Display for InvalidChar {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            InvalidChar::Utf8(c) => write!(f, "{}", c),
+            InvalidChar::Other(u) => write!(f, "{}", u),
+        }
+    }
 }
 
 impl InvalidCharError {
     /// Returns the invalid character byte.
     pub fn invalid_char(&self) -> u8 {
-        let mut bytes = [0u8; 4];
-        self.invalid.encode_utf8(&mut bytes);
-        bytes[0]
+        match self.invalid {
+            InvalidChar::Utf8(c) => {
+                let mut bytes = [0u8; 4];
+                c.encode_utf8(&mut bytes);
+                bytes[0]
+            }
+            InvalidChar::Other(u) => u,
+        }
     }
     /// Returns the position of the first invalid character byte.
     pub fn pos(&self) -> usize { self.pos }
     /// Returns the invalid character.
-    pub fn character(&self) -> char { self.invalid }
+    pub fn character(&self) -> Result<char, u8> {
+        match self.invalid {
+            InvalidChar::Utf8(c) => Ok(c),
+            InvalidChar::Other(u) => Err(u),
+        }
+    }
 }
 
 impl fmt::Display for InvalidCharError {

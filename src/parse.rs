@@ -53,7 +53,7 @@ mod tests {
     #[test]
     #[cfg(feature = "alloc")]
     fn hex_error() {
-        use crate::error::{InvalidCharError, OddLengthStringError};
+        use crate::error::{InvalidChar, InvalidCharError, OddLengthStringError};
 
         let oddlen = "0123456789abcdef0";
         let badchar1 = "Z123456789abcdef";
@@ -67,21 +67,21 @@ mod tests {
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar1),
-            Err(InvalidCharError { pos: 0, invalid: 'Z' }.into())
+            Err(InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('Z') }.into())
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar2),
-            Err(InvalidCharError { pos: 3, invalid: 'Y' }.into())
+            Err(InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('Y') }.into())
         );
         assert_eq!(
             Vec::<u8>::from_hex(badchar3),
-            Err(InvalidCharError { pos: 0, invalid: '«' }.into())
+            Err(InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('«') }.into())
         );
     }
 
     #[test]
     fn hex_error_position() {
-        use crate::error::InvalidCharError;
+        use crate::error::{InvalidChar, InvalidCharError};
         let badpos1 = "Z123456789abcdef";
         let badpos2 = "012Y456789abcdeb";
         let badpos3 = "0123456789abcdeZ";
@@ -89,19 +89,19 @@ mod tests {
 
         assert_eq!(
             HexToBytesIter::new(badpos1).unwrap().next().unwrap(),
-            Err(InvalidCharError { pos: 0, invalid: 'Z' })
+            Err(InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('Z') })
         );
         assert_eq!(
             HexToBytesIter::new(badpos2).unwrap().nth(1).unwrap(),
-            Err(InvalidCharError { pos: 3, invalid: 'Y' })
+            Err(InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('Y') })
         );
         assert_eq!(
             HexToBytesIter::new(badpos3).unwrap().next_back().unwrap(),
-            Err(InvalidCharError { pos: 15, invalid: 'Z' })
+            Err(InvalidCharError { pos: 15, invalid: InvalidChar::Utf8('Z') })
         );
         assert_eq!(
             HexToBytesIter::new(badpos4).unwrap().nth_back(1).unwrap(),
-            Err(InvalidCharError { pos: 12, invalid: 'Y' })
+            Err(InvalidCharError { pos: 12, invalid: InvalidChar::Utf8('Y') })
         );
     }
 
