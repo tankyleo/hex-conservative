@@ -173,25 +173,34 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
                     c = lo;
                     pos += 1;
                     if c.is_ascii() {
+                        // high is not hex, low is ascii
                         return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
                     } else if is_utf8_continuation(c) {
+                        // high is not hex, low is continuation
                         bytes.push(lo);
                         bytes.push(hi);
                     } else {
+                        // high is not hex, low is not continuation
                         return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                     }
                 } else if c.is_ascii() {
+                    // low is valid, high is ascii
                     return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
                 } else if is_utf8_continuation(c) {
+                    // low is valid, high is continuation
                     bytes.push(hi);
                 } else {
+                    // low is valid, high is else
                     return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
             } else if c.is_ascii() {
+                // high is valid, low is ascii
                 return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
             } else {
+                // high is valid, low is else
                 return InvalidCharError { invalid: InvalidChar::Other(c), pos };
             }
+
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
                 let [hi, lo] = match self.iter.next_back() {
                     Some(b) => b,
