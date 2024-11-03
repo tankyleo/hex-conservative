@@ -834,22 +834,79 @@ mod tests {
 
     #[test]
     fn test_utf8_errors() {
-        // First byte is not utf8
-        let iter = HexDigitsIter::new_unchecked(&[0xff, 0xff]);
-        let mut iter = HexToBytesIter::from_pairs(iter);
+
+        // high is not hex, low is ascii
+        let iter = HexDigitsIter::new_unchecked(&[0xff, 0x7a]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('z'), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // high is not hex, low is continuation
+        let iter = HexDigitsIter::new_unchecked(&[0xc2, 0xab]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // high is not hex, low is not ascii, not continuation
+        let iter = HexDigitsIter::new_unchecked(&[0xff, 0xe0]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xe0), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // high is ascii, low is hex
+        let iter = HexDigitsIter::new_unchecked(&[0x7a, 0x32]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('z'), pos: 0 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // high is continuation, low is hex
+        let iter = HexDigitsIter::new_unchecked(&[0x32, 0xc2, 0xab, 0x32]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 2 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // high is else, low is hex
+        let iter = HexDigitsIter::new_unchecked(&[0xff, 0x32]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
         assert_eq!(
             iter.next(),
             Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xff), pos: 0 }))
         );
         assert_eq!(iter.next(), None);
 
-        // Multi byte, then ascii
-        let iter = HexDigitsIter::new_unchecked(&[0xc2, 0xff]);
-        let mut iter = HexToBytesIter::from_pairs(iter);
+
+        // high is hex, low is ascii
+        let iter = HexDigitsIter::new_unchecked(&[0x32, 0x7a]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
         assert_eq!(
             iter.next(),
-            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xc2), pos: 0 }))
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('z'), pos: 1 }))
         );
         assert_eq!(iter.next(), None);
+
+        // high is hex, low is else
+        let iter = HexDigitsIter::new_unchecked(&[0x32, 0xff]);
+        let mut iter = HexToBytesIter::from_pairs(iter).rev();
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xff), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
     }
 }
