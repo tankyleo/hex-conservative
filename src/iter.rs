@@ -107,11 +107,12 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
                 (self.original_len - self.iter.len() - 1) * 2 + 1
             };
             let utf8_byte_len = match c {
-                0x00..=0x7f => 1,
+                0x00..=0x7f =>
+                    return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos },
                 0xc2..=0xdf => 2,
                 0xe0..=0xef => 3,
                 0xf0..=0xf4 => 4,
-                _ => panic!("invalid utf-8"),
+                _ => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
             };
             let mut bytes = arrayvec::ArrayVec::<u8, 5>::new();
             if is_high {
@@ -121,10 +122,19 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
                 bytes.push(lo);
             };
             while bytes.len() < utf8_byte_len {
-                let batch = self.iter.next().expect("unexpected end of multi byte sequence");
+                let batch = match self.iter.next() {
+                    Some(b) => b,
+                    None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
+                };
                 bytes.try_extend_from_slice(&batch).expect("unexpected capacity error");
             }
-            let s = core::str::from_utf8(&bytes).expect("invalid utf8");
+            let s = match core::str::from_utf8(&bytes) {
+                Ok(s) => s,
+                Err(e) => {
+                    assert_eq!(e.valid_up_to(), 0);
+                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                }
+            };
             let invalid = s.chars().next().expect("expected at least 1 character");
             InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
         }))
@@ -155,27 +165,72 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
         fn is_utf8_continuation(b: u8) -> bool { (0x80..=0xbf).contains(&b) }
 
         let [hi, lo] = self.iter.next_back()?;
-        Some(hex_chars_to_byte(hi, lo).map_err(|(_c, is_high)| {
+        Some(hex_chars_to_byte(hi, lo).map_err(|(mut c, is_high)| {
             let mut pos = if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 };
-            let mut bytes = arrayvec::ArrayVec::<u8, 5>::new();
+            let mut bytes = arrayvec::ArrayVec::<u8, 4>::new();
             if is_high {
-                bytes.push(lo);
-                bytes.push(hi);
+                if (lo as char).to_digit(16).is_none() {
+                    c = lo;
+                    pos += 1;
+                    if c.is_ascii() {
+                        return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
+                    } else if is_utf8_continuation(c) {
+                        bytes.push(lo);
+                        bytes.push(hi);
+                    } else {
+                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                    }
+                } else {
+                    if c.is_ascii() {
+                        return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
+                    } else if is_utf8_continuation(c) {
+                        bytes.push(hi);
+                    } else {
+                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                    }
+                }
             } else {
-                return InvalidCharError { invalid: InvalidChar::Utf8(char::from(lo)), pos };
+                if c.is_ascii() {
+                    return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
+                } else {
+                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                }
             }
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
-                let [hi, lo] = self.iter.next_back().expect("unexpected end of utf8 byte sequence");
-                bytes.push(lo);
-                pos -= 1;
+                let [hi, lo] = match self.iter.next_back() {
+                    Some(b) => b,
+                    None =>
+                        return InvalidCharError {
+                            invalid: InvalidChar::Other(c),
+                            pos,
+                        },
+                };
+                if let Err(_e) = bytes.try_push(lo) {
+                    return InvalidCharError {
+                        invalid: InvalidChar::Other(c),
+                        pos,
+                    };
+                }
                 if is_utf8_continuation(lo) {
-                    bytes.push(hi);
-                    pos -= 1;
+                    if let Err(_e) = bytes.try_push(hi) {
+                        return InvalidCharError {
+                            invalid: InvalidChar::Other(c),
+                            pos,
+                        };
+                    }
                 }
             }
             bytes.reverse();
-            let s = core::str::from_utf8(&bytes).expect("invalid utf8");
-            let invalid = s.chars().next().expect("expected at least 1 character");
+            let s = match core::str::from_utf8(&bytes) {
+                Ok(s) => s,
+                Err(_e) => {
+                    return InvalidCharError {
+                        invalid: InvalidChar::Other(c),
+                        pos,
+                    };
+                }
+            };
+            let invalid = s.chars().next().expect("should yield at least 1 character");
             InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
         }))
     }
@@ -712,7 +767,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('«') }),
+                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -723,7 +778,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('☺') }),
+                    assert_eq!(e, InvalidCharError { pos: 4, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -734,7 +789,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 14, invalid: InvalidChar::Utf8('🚀') }),
+                    assert_eq!(e, InvalidCharError { pos: 17, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -749,7 +804,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
+                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
@@ -760,7 +815,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('☺') }),
+                    assert_eq!(e, InvalidCharError { pos: 5, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -771,7 +826,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 13, invalid: InvalidChar::Utf8('🚀') }),
+                    assert_eq!(e, InvalidCharError { pos: 16, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
