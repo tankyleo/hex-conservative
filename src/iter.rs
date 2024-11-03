@@ -180,21 +180,17 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
                     } else {
                         return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                     }
-                } else {
-                    if c.is_ascii() {
-                        return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-                    } else if is_utf8_continuation(c) {
-                        bytes.push(hi);
-                    } else {
-                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
-                    }
-                }
-            } else {
-                if c.is_ascii() {
+                } else if c.is_ascii() {
                     return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
+                } else if is_utf8_continuation(c) {
+                    bytes.push(hi);
                 } else {
                     return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
+            } else if c.is_ascii() {
+                return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
+            } else {
+                return InvalidCharError { invalid: InvalidChar::Other(c), pos };
             }
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
                 let [hi, lo] = match self.iter.next_back() {
