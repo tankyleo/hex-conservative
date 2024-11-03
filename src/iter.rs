@@ -100,7 +100,7 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
         let [hi, lo] = self.iter.next()?;
-        Some(hex_chars_to_byte(hi, lo).map_err(|(c, is_high)| {
+        Some(hex_chars_to_byte(hi, lo, true).map_err(|(c, is_high)| {
             let pos = if is_high {
                 (self.original_len - self.iter.len() - 1) * 2
             } else {
@@ -153,7 +153,7 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
     #[inline]
     fn nth(&mut self, n: usize) -> Option<Self::Item> {
         let [hi, lo] = self.iter.nth(n)?;
-        Some(hex_chars_to_byte(hi, lo).map_err(|(c, is_high)| InvalidCharError {
+        Some(hex_chars_to_byte(hi, lo, true).map_err(|(c, is_high)| InvalidCharError {
             invalid: InvalidChar::Utf8(char::from(c)),
             pos: if is_high {
                 (self.original_len - self.iter.len() - 1) * 2
@@ -172,29 +172,18 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
         fn is_utf8_continuation(b: u8) -> bool { (0x80..=0xbf).contains(&b) }
 
         let [hi, lo] = self.iter.next_back()?;
-        Some(hex_chars_to_byte(hi, lo).map_err(|(mut c, is_high)| {
-            let mut pos = if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 };
-            // put c and pos at the right most position that is wrong
-            if (lo as char).to_digit(16).is_none() {
-                if is_high {
-                    pos += 1;
-                }
-                c = lo;
-            }
+        Some(hex_chars_to_byte(hi, lo, false).map_err(|(c, is_high)| {
+            let pos = if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 };
 
-            // if the right most position that is wrong is ascii, or other, return immediately
             if c.is_ascii() {
                 return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-            } else if !(is_high && is_utf8_continuation(c)) {
+            } else if !is_utf8_continuation(c) {
                 return InvalidCharError { invalid: InvalidChar::Other(c), pos };
             }
 
             let mut bytes = arrayvec::ArrayVec::<u8, 4>::new();
 
-            // if left is wrong, right is wrong too, otherwise we should have returned above
-            assert!(is_high);
             if is_utf8_continuation(lo) {
-                assert_eq!(c, lo);
                 bytes.push(lo);
                 bytes.push(hi);
             } else {
@@ -235,7 +224,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
     #[inline]
     fn nth_back(&mut self, n: usize) -> Option<Self::Item> {
         let [hi, lo] = self.iter.nth_back(n)?;
-        Some(hex_chars_to_byte(hi, lo).map_err(|(c, is_high)| InvalidCharError {
+        Some(hex_chars_to_byte(hi, lo, false).map_err(|(c, is_high)| InvalidCharError {
             invalid: InvalidChar::Utf8(char::from(c)),
             pos: if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 },
         }))
@@ -322,10 +311,16 @@ impl<'a> core::iter::FusedIterator for HexDigitsIter<'a> {}
 /// `hi` and `lo` are bytes representing hex characters.
 ///
 /// Returns the valid byte or the invalid input byte and a bool indicating error for `hi` or `lo`.
-fn hex_chars_to_byte(hi: u8, lo: u8) -> Result<u8, (u8, bool)> {
-    let hih = (hi as char).to_digit(16).ok_or((hi, true))?;
-    let loh = (lo as char).to_digit(16).ok_or((lo, false))?;
-
+fn hex_chars_to_byte(hi: u8, lo: u8, hi_first: bool) -> Result<u8, (u8, bool)> {
+    let [hih, loh] = if hi_first {
+        let hih = (hi as char).to_digit(16).ok_or((hi, true))?;
+        let loh = (lo as char).to_digit(16).ok_or((lo, false))?;
+        [hih, loh]
+    } else {
+        let loh = (lo as char).to_digit(16).ok_or((lo, false))?;
+        let hih = (hi as char).to_digit(16).ok_or((hi, true))?;
+        [hih, loh]
+    };
     let ret = (hih << 4) + loh;
     Ok(ret as u8)
 }
