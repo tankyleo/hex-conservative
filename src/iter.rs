@@ -167,38 +167,33 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
         let [hi, lo] = self.iter.next_back()?;
         Some(hex_chars_to_byte(hi, lo).map_err(|(mut c, is_high)| {
             let mut pos = if is_high { self.iter.len() * 2 } else { self.iter.len() * 2 + 1 };
-            let mut bytes = arrayvec::ArrayVec::<u8, 4>::new();
-            if is_high {
-                if (lo as char).to_digit(16).is_none() {
-                    c = lo;
+            // put c and pos at the right most position that is wrong
+            if (lo as char).to_digit(16).is_none() {
+                if is_high {
                     pos += 1;
-                    if c.is_ascii() {
-                        // high is not hex, low is ascii
-                        return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-                    } else if is_utf8_continuation(c) {
-                        // high is not hex, low is continuation
-                        bytes.push(lo);
-                        bytes.push(hi);
-                    } else {
-                        // high is not hex, low is not continuation
-                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
-                    }
-                } else if c.is_ascii() {
-                    // low is valid, high is ascii
-                    return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-                } else if is_utf8_continuation(c) {
-                    // low is valid, high is continuation
-                    bytes.push(hi);
-                } else {
-                    // low is valid, high is else
-                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
-            } else if c.is_ascii() {
-                // high is valid, low is ascii
+                c = lo;
+            }
+
+            // if the right most position that is wrong is ascii, or other, return immediately
+            if c.is_ascii() {
                 return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-            } else {
-                // high is valid, low is else
+            } else if !is_utf8_continuation(c) {
                 return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+            }
+
+            let mut bytes = arrayvec::ArrayVec::<u8, 4>::new();
+
+            // if left is wrong, right is wrong too, otherwise we should have returned above
+            assert!(is_high);
+            if is_utf8_continuation(lo) {
+                assert_eq!(c, lo);
+                bytes.push(lo);
+                bytes.push(hi);
+            } else {
+                // otherwise, we should have returned above
+                assert!(is_utf8_continuation(hi));
+                bytes.push(hi);
             }
 
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
@@ -215,13 +210,16 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
                     }
                 }
             }
+
             bytes.reverse();
+
             let s = match core::str::from_utf8(&bytes) {
                 Ok(s) => s,
                 Err(_e) => {
                     return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
             };
+            assert!(!bytes[0].is_ascii());
             let invalid = s.chars().next().expect("should yield at least 1 character");
             InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
         }))
@@ -834,7 +832,6 @@ mod tests {
 
     #[test]
     fn test_utf8_errors() {
-
         // high is not hex, low is ascii
         let iter = HexDigitsIter::new_unchecked(&[0xff, 0x7a]);
         let mut iter = HexToBytesIter::from_pairs(iter).rev();
@@ -889,7 +886,6 @@ mod tests {
         );
         assert_eq!(iter.next(), None);
 
-
         // high is hex, low is ascii
         let iter = HexDigitsIter::new_unchecked(&[0x32, 0x7a]);
         let mut iter = HexToBytesIter::from_pairs(iter).rev();
@@ -907,6 +903,5 @@ mod tests {
             Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xff), pos: 1 }))
         );
         assert_eq!(iter.next(), None);
-
     }
 }
