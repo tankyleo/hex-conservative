@@ -106,6 +106,7 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
             } else {
                 (self.original_len - self.iter.len() - 1) * 2 + 1
             };
+
             let utf8_byte_len = match c {
                 0x00..=0x7f =>
                     return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos },
@@ -114,26 +115,32 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
                 0xf0..=0xf4 => 4,
                 _ => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
             };
+
             let mut bytes = arrayvec::ArrayVec::<u8, 5>::new();
+
             if is_high {
                 bytes.push(hi);
                 bytes.push(lo);
             } else {
                 bytes.push(lo);
             };
+
+            assert!(!bytes[0].is_ascii());
             while bytes.len() < utf8_byte_len {
-                let batch = match self.iter.next() {
+                let b = match self.iter.next() {
                     Some(b) => b,
                     None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                 };
-                bytes.try_extend_from_slice(&batch).expect("unexpected capacity error");
+                bytes.try_extend_from_slice(&b).expect("unexpected capacity error");
             }
+
             let s = match core::str::from_utf8(&bytes) {
                 Ok(s) => s,
-                Err(e) => {
-                    assert_eq!(e.valid_up_to(), 0);
-                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
-                }
+                Err(e) => match e.valid_up_to() {
+                    0 => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
+                    v @ 1..=4 => core::str::from_utf8(&bytes[..v]).unwrap(),
+                    _ => unreachable!(),
+                },
             };
             let invalid = s.chars().next().expect("expected at least 1 character");
             InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
@@ -832,6 +839,24 @@ mod tests {
 
     #[test]
     fn test_utf8_errors() {
+        // multi byte valid utf8 that starts at odd position and is even, then 0xff
+        let iter = HexDigitsIter::new_unchecked(&[0x32, 0xc2, 0xab, 0xff]);
+        let mut iter = HexToBytesIter::from_pairs(iter);
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // No more continuation
+        let iter = HexDigitsIter::new_unchecked(&[0x32, 0xc2, 0x32, 0x32]);
+        let mut iter = HexToBytesIter::from_pairs(iter);
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xc2), pos: 1 }))
+        );
+        assert_eq!(iter.next(), None);
+
         // high is not hex, low is ascii
         let iter = HexDigitsIter::new_unchecked(&[0xff, 0x7a]);
         let mut iter = HexToBytesIter::from_pairs(iter).rev();
