@@ -199,24 +199,14 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
             while is_utf8_continuation(bytes[bytes.len() - 1]) {
                 let [hi, lo] = match self.iter.next_back() {
                     Some(b) => b,
-                    None =>
-                        return InvalidCharError {
-                            invalid: InvalidChar::Other(c),
-                            pos,
-                        },
+                    None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                 };
                 if let Err(_e) = bytes.try_push(lo) {
-                    return InvalidCharError {
-                        invalid: InvalidChar::Other(c),
-                        pos,
-                    };
+                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
                 if is_utf8_continuation(lo) {
                     if let Err(_e) = bytes.try_push(hi) {
-                        return InvalidCharError {
-                            invalid: InvalidChar::Other(c),
-                            pos,
-                        };
+                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                     }
                 }
             }
@@ -224,10 +214,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
             let s = match core::str::from_utf8(&bytes) {
                 Ok(s) => s,
                 Err(_e) => {
-                    return InvalidCharError {
-                        invalid: InvalidChar::Other(c),
-                        pos,
-                    };
+                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
                 }
             };
             let invalid = s.chars().next().expect("should yield at least 1 character");
@@ -829,5 +816,35 @@ mod tests {
                     assert_eq!(e, InvalidCharError { pos: 16, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
+    }
+
+    #[test]
+    fn test_utf8() {
+        let iter = HexDigitsIter::new_unchecked(b"abcd");
+        let mut iter = HexToBytesIter::from_pairs(iter);
+        assert_eq!(iter.next(), Some(Ok(0xab)));
+        assert_eq!(iter.next(), Some(Ok(0xcd)));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn test_utf8_errors() {
+        // First byte is not utf8
+        let iter = HexDigitsIter::new_unchecked(&[0xff, 0xff]);
+        let mut iter = HexToBytesIter::from_pairs(iter);
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xff), pos: 0 }))
+        );
+        assert_eq!(iter.next(), None);
+
+        // Multi byte, then ascii
+        let iter = HexDigitsIter::new_unchecked(&[0xc2, 0xff]);
+        let mut iter = HexToBytesIter::from_pairs(iter);
+        assert_eq!(
+            iter.next(),
+            Some(Err(InvalidCharError { invalid: InvalidChar::Other(0xc2), pos: 0 }))
+        );
+        assert_eq!(iter.next(), None);
     }
 }
