@@ -185,7 +185,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
             // if the right most position that is wrong is ascii, or other, return immediately
             if c.is_ascii() {
                 return InvalidCharError { invalid: InvalidChar::Utf8(char::from(c)), pos };
-            } else if !is_utf8_continuation(c) {
+            } else if !(is_high && is_utf8_continuation(c)) {
                 return InvalidCharError { invalid: InvalidChar::Other(c), pos };
             }
 
