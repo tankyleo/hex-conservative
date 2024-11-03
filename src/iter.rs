@@ -228,7 +228,7 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
             };
             assert!(!bytes[0].is_ascii());
             let invalid = s.chars().next().expect("should yield at least 1 character");
-            InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos }
+            InvalidCharError { invalid: InvalidChar::Utf8(invalid), pos: pos + 1 - s.len() }
         }))
     }
 
@@ -764,18 +764,18 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
+                    assert_eq!(e, InvalidCharError { pos: 0, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
         // 3 byte utf8
-        let badchar2 = "12☺456789abcde";
+        let badchar2 = "123☺56789abcde";
         let iter = HexToBytesIter::new(badchar2).unwrap().rev();
         for i in iter {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 4, invalid: InvalidChar::Utf8('☺') }),
+                    assert_eq!(e, InvalidCharError { pos: 3, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -786,7 +786,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 17, invalid: InvalidChar::Utf8('🚀') }),
+                    assert_eq!(e, InvalidCharError { pos: 14, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -801,18 +801,18 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('«') }),
+                    assert_eq!(e, InvalidCharError { pos: 1, invalid: InvalidChar::Utf8('«') }),
             }
         }
 
         // 3 byte utf8
-        let badchar2 = "123☺56789abcde";
+        let badchar2 = "12☺456789abcde";
         let iter = HexToBytesIter::new(badchar2).unwrap().rev();
         for i in iter {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 5, invalid: InvalidChar::Utf8('☺') }),
+                    assert_eq!(e, InvalidCharError { pos: 2, invalid: InvalidChar::Utf8('☺') }),
             }
         }
 
@@ -823,7 +823,7 @@ mod tests {
             match i {
                 Ok(_) => (),
                 Err(e) =>
-                    assert_eq!(e, InvalidCharError { pos: 16, invalid: InvalidChar::Utf8('🚀') }),
+                    assert_eq!(e, InvalidCharError { pos: 13, invalid: InvalidChar::Utf8('🚀') }),
             }
         }
     }
@@ -871,7 +871,7 @@ mod tests {
         let mut iter = HexToBytesIter::from_pairs(iter).rev();
         assert_eq!(
             iter.next(),
-            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 1 }))
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 0 }))
         );
         assert_eq!(iter.next(), None);
 
@@ -898,7 +898,7 @@ mod tests {
         let mut iter = HexToBytesIter::from_pairs(iter).rev();
         assert_eq!(
             iter.next(),
-            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 2 }))
+            Some(Err(InvalidCharError { invalid: InvalidChar::Utf8('«'), pos: 1 }))
         );
         assert_eq!(iter.next(), None);
 
