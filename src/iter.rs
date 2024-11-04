@@ -116,22 +116,29 @@ impl<T: Iterator<Item = [u8; 2]> + ExactSizeIterator> Iterator for HexToBytesIte
                 _ => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
             };
 
-            let mut bytes = arrayvec::ArrayVec::<u8, 5>::new();
+            let mut bytes = [0u8; 5];
+            let mut ptr = 0usize;
 
             if is_high {
-                bytes.push(hi);
-                bytes.push(lo);
+                bytes[ptr] = hi;
+                ptr += 1;
+                bytes[ptr] = lo;
+                ptr += 1;
             } else {
-                bytes.push(lo);
+                bytes[ptr] = lo;
+                ptr += 1;
             };
 
             assert!(!bytes[0].is_ascii());
-            while bytes.len() < utf8_byte_len {
-                let b = match self.iter.next() {
+            while ptr < utf8_byte_len {
+                let [hi, lo] = match self.iter.next() {
                     Some(b) => b,
                     None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                 };
-                bytes.try_extend_from_slice(&b).expect("unexpected capacity error");
+                bytes[ptr] = hi;
+                ptr += 1;
+                bytes[ptr] = lo;
+                ptr += 1;
             }
 
             let s = match core::str::from_utf8(&bytes) {
@@ -181,35 +188,47 @@ impl<T: Iterator<Item = [u8; 2]> + DoubleEndedIterator + ExactSizeIterator> Doub
                 return InvalidCharError { invalid: InvalidChar::Other(c), pos };
             }
 
-            let mut bytes = arrayvec::ArrayVec::<u8, 4>::new();
+            let mut bytes = [0u8; 4];
+            let mut ptr = 0usize;
 
             if is_utf8_continuation(lo) {
-                bytes.push(lo);
-                bytes.push(hi);
+                bytes[ptr] = lo;
+                ptr += 1;
+                bytes[ptr] = hi;
+                ptr += 1;
             } else {
                 // otherwise, we should have returned above
                 assert!(is_utf8_continuation(hi));
-                bytes.push(hi);
+                bytes[ptr] = hi;
+                ptr += 1;
             }
 
-            while is_utf8_continuation(bytes[bytes.len() - 1]) {
+            while is_utf8_continuation(bytes[ptr - 1]) {
                 let [hi, lo] = match self.iter.next_back() {
                     Some(b) => b,
                     None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                 };
-                if let Err(_e) = bytes.try_push(lo) {
-                    return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                match bytes.get_mut(ptr) {
+                    Some(e) => {
+                        *e = lo;
+                        ptr += 1;
+                    }
+                    None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                 }
                 if is_utf8_continuation(lo) {
-                    if let Err(_e) = bytes.try_push(hi) {
-                        return InvalidCharError { invalid: InvalidChar::Other(c), pos };
+                    match bytes.get_mut(ptr) {
+                        Some(e) => {
+                            *e = hi;
+                            ptr += 1
+                        }
+                        None => return InvalidCharError { invalid: InvalidChar::Other(c), pos },
                     }
                 }
             }
 
-            bytes.reverse();
+            bytes[..ptr].reverse();
 
-            let s = match core::str::from_utf8(&bytes) {
+            let s = match core::str::from_utf8(&bytes[..ptr]) {
                 Ok(s) => s,
                 Err(_e) => {
                     return InvalidCharError { invalid: InvalidChar::Other(c), pos };
