@@ -9,6 +9,7 @@
 //! dynamic dispatch and decreases the number of allocations if a `String` is being created.
 
 use core::borrow::Borrow;
+use std::mem::MaybeUninit;
 
 use super::{Case, Table};
 
@@ -18,7 +19,7 @@ use super::{Case, Table};
 /// provided by `core::fmt` involve dynamic dispatch and don't allow reserving capacity in strings
 /// buffering the hex and then formatting it is significantly faster.
 pub struct BufEncoder<const CAP: usize> {
-    buf: [u8; CAP],
+    buf: [MaybeUninit<u8>; CAP],
     ptr: usize,
     table: &'static Table,
 }
@@ -28,7 +29,9 @@ impl<const CAP: usize> BufEncoder<CAP> {
 
     /// Creates an empty `BufEncoder` that will encode bytes to hex characters in the given case.
     #[inline]
-    pub fn new(case: Case) -> Self { BufEncoder { buf: [0u8; CAP], ptr: 0, table: case.table() } }
+    pub fn new(case: Case) -> Self {
+        BufEncoder { buf: [MaybeUninit::uninit(); CAP], ptr: 0, table: case.table() }
+    }
 
     /// Encodes `byte` as hex and appends it to the buffer.
     ///
@@ -38,8 +41,15 @@ impl<const CAP: usize> BufEncoder<CAP> {
     #[inline]
     #[track_caller]
     pub fn put_byte(&mut self, byte: u8) {
+        assert!(self.ptr + 2 <= CAP);
         let ascii_bytes = self.table.byte_to_array(byte);
-        self.buf[self.ptr..self.ptr + 2].copy_from_slice(&ascii_bytes);
+        unsafe {
+            core::ptr::copy_nonoverlapping(
+                ascii_bytes.as_ptr(),
+                self.buf.as_ptr().add(self.ptr) as *mut u8,
+                2,
+            );
+        }
         self.ptr += 2;
     }
 
@@ -94,7 +104,10 @@ impl<const CAP: usize> BufEncoder<CAP> {
     /// Returns the written bytes as a hex `str`.
     #[inline]
     pub fn as_str(&self) -> &str {
-        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.ptr]) }
+        unsafe {
+            let s = core::slice::from_raw_parts(self.buf.as_ptr() as *const u8, self.ptr);
+            core::str::from_utf8_unchecked(s)
+        }
     }
 
     /// Resets the buffer to become empty.
@@ -113,8 +126,16 @@ impl<const CAP: usize> BufEncoder<CAP> {
         let max_capacity = (CAP - self.ptr) / filler.len();
         let to_write = max_capacity.min(max_count);
 
+        assert!(self.ptr + filler.len() <= CAP);
+
         for _ in 0..to_write {
-            self.buf[self.ptr..self.ptr + filler.len()].copy_from_slice(filler.as_bytes());
+            unsafe {
+                core::ptr::copy_nonoverlapping(
+                    filler.as_bytes().as_ptr(),
+                    self.buf.as_ptr().add(self.ptr) as *mut u8,
+                    filler.len(),
+                );
+            }
             self.ptr += filler.len();
         }
 
