@@ -30,7 +30,9 @@ impl<const CAP: usize> BufEncoder<CAP> {
     /// Creates an empty `BufEncoder` that will encode bytes to hex characters in the given case.
     #[inline]
     pub fn new(case: Case) -> Self {
-        BufEncoder { buf: [MaybeUninit::uninit(); CAP], ptr: 0, table: case.table() }
+        unsafe {
+            BufEncoder { buf: MaybeUninit::uninit().assume_init(), ptr: 0, table: case.table() }
+        }
     }
 
     /// Encodes `byte` as hex and appends it to the buffer.
