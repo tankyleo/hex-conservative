@@ -135,7 +135,15 @@ mod table {
             [char::from(left), char::from(right)]
         }
 
-        /// Writes the single byte as two ASCII chars in the provided buffer, and returns a `&str`
+        /// Encodes single byte as two ASCII bytes using the given table.
+        ///
+        /// The function guarantees only returning values from the provided table.
+        #[inline]
+        pub(crate) fn byte_to_array(&self, byte: u8) -> [u8; 2] {
+            [self.0[usize::from(byte >> 4)], self.0[usize::from(byte & 0x0F)]]
+        }
+
+        /// Writes the single byte as two ASCII bytes in the provided buffer, and returns a `&str`
         /// to that buffer.
         ///
         /// The function guarantees only returning values from the provided table.

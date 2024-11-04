@@ -10,8 +10,6 @@
 
 use core::borrow::Borrow;
 
-use arrayvec::ArrayString;
-
 use super::{Case, Table};
 
 /// Hex-encodes bytes into the provided buffer.
@@ -20,7 +18,8 @@ use super::{Case, Table};
 /// provided by `core::fmt` involve dynamic dispatch and don't allow reserving capacity in strings
 /// buffering the hex and then formatting it is significantly faster.
 pub struct BufEncoder<const CAP: usize> {
-    buf: ArrayString<CAP>,
+    buf: [u8; CAP],
+    ptr: usize,
     table: &'static Table,
 }
 
@@ -29,7 +28,7 @@ impl<const CAP: usize> BufEncoder<CAP> {
 
     /// Creates an empty `BufEncoder` that will encode bytes to hex characters in the given case.
     #[inline]
-    pub fn new(case: Case) -> Self { BufEncoder { buf: ArrayString::new(), table: case.table() } }
+    pub fn new(case: Case) -> Self { BufEncoder { buf: [0u8; CAP], ptr: 0, table: case.table() } }
 
     /// Encodes `byte` as hex and appends it to the buffer.
     ///
@@ -39,9 +38,9 @@ impl<const CAP: usize> BufEncoder<CAP> {
     #[inline]
     #[track_caller]
     pub fn put_byte(&mut self, byte: u8) {
-        let mut hex_chars = [0u8; 2];
-        let hex_str = self.table.byte_to_str(&mut hex_chars, byte);
-        self.buf.push_str(hex_str);
+        let ascii_bytes = self.table.byte_to_array(byte);
+        self.buf[self.ptr..self.ptr + 2].copy_from_slice(&ascii_bytes);
+        self.ptr += 2;
     }
 
     /// Encodes `bytes` as hex and appends them to the buffer.
@@ -94,26 +93,29 @@ impl<const CAP: usize> BufEncoder<CAP> {
 
     /// Returns the written bytes as a hex `str`.
     #[inline]
-    pub fn as_str(&self) -> &str { &self.buf }
+    pub fn as_str(&self) -> &str {
+        unsafe { core::str::from_utf8_unchecked(&self.buf[..self.ptr]) }
+    }
 
     /// Resets the buffer to become empty.
     #[inline]
-    pub fn clear(&mut self) { self.buf.clear(); }
+    pub fn clear(&mut self) { self.ptr = 0; }
 
     /// How many bytes can be written to this buffer.
     ///
     /// Note that this returns the number of bytes before encoding, not number of hex digits.
     #[inline]
-    pub fn space_remaining(&self) -> usize { self.buf.remaining_capacity() / 2 }
+    pub fn space_remaining(&self) -> usize { (CAP - self.ptr) / 2 }
 
     pub(crate) fn put_filler(&mut self, filler: char, max_count: usize) -> usize {
         let mut buf = [0; 4];
         let filler = filler.encode_utf8(&mut buf);
-        let max_capacity = self.buf.remaining_capacity() / filler.len();
+        let max_capacity = (CAP - self.ptr) / filler.len();
         let to_write = max_capacity.min(max_count);
 
         for _ in 0..to_write {
-            self.buf.push_str(filler);
+            self.buf[self.ptr..self.ptr + filler.len()].copy_from_slice(filler.as_bytes());
+            self.ptr += filler.len();
         }
 
         to_write
